@@ -408,7 +408,7 @@ Resources:
           - ResourceType: 'instance'
             Tags:
               - Key: 'Name'
-                Value: !Sub '${CustomerID}-Good-aaaa-ECS'
+                Value: !Sub '${CustomerID}-ECS-ContainerInstance'
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
@@ -416,7 +416,7 @@ Resources:
             echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
             sudo yum -y update
             sudo yum -y upgrade
-            sudo yum install -y git nano docker aws-cli python3 python3-pip ecs-init bind-utils awslogs jq nfs-utils amazon-efs-utils htop screen
+            sudo yum install -y git nano docker aws-cli python3 python3-pip ecs-init bind-utils awslogs jq nfs-utils amazon-efs-utils htop screen wget
             python3 -m pip install --upgrade pip
             python3 -m pip install --upgrade boto3
             python3 -m pip install --upgrade requests
