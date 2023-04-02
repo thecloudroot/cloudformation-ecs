@@ -1,22 +1,21 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Deploys an ECS Service with an associated load balancer
+Description: Deploys an ECS Service with EFS, cloudwatch logs and alarms, Route 53 Subdomain, LoadBalancer with target group.
 Parameters:
   KeyPair:
-    Description: Name of an existing EC2 KeyPair to enable SSH access to the container
-      instances
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the container instances
     Type: AWS::EC2::KeyPair::KeyName
     ConstraintDescription: Must be a valid EC2 keypair.
   LoadBalancerSubnets:
     Description: Subnet(s) for the load balancer
     Type: List<AWS::EC2::Subnet::Id>
   ECSSubnets:
-    Description: Subnets for the ECS Dre Clusters
+    Description: Subnets for the ECS Clusters
     Type: List<AWS::EC2::Subnet::Id>
   VpcId:
     Description: VPC ID for resources
     Type: AWS::EC2::VPC::Id
   InstanceType:
-    Description: Dre Clusters EC2 instance type
+    Description: Clusters EC2 instance type
     Type: String
     Default: t3a.small
     AllowedValues:
@@ -58,38 +57,67 @@ Parameters:
     Description: Query for the latest Amazon Linux AMI IDs using AWS Systems Manager Parameter Store
     Default: '/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id'
   DNSNombre:
-    Description: Ingresa el nombre del dns que quieras 
+    Description: Enter your subdomain | Example; test1.yourdomainhere
     Type: String
-    Default: lamalicia.sandbox.thecloudroot.net
+    Default: YourSubDomainHere
   ACMARN:
-    Description: ingresa el ACM de tu dominio.
+    Description: Enter the ACMARN (Amazon Certificate Manager ARN)
     Type: String
-    Default: arn:aws:acm:us-east-1:313137280784:certificate/659d67b4-6659-4441-b9c0-4bc0671b87dd
+    Default: arn:aws:acm:us-east-1:12345678910:certificate/
   HostedZoneId:
-    Description: Pon el dominio donde crear?s el subdominio
-    Type: String
-    Default: Z060464124MHCAU1LMIAR
-  Region:
-    Description: Escoge una Region available de aws
-    Type: String
-    Default: us-east-1
+    Description: Select your domain.
+    Type: AWS::Route53::HostedZone::Id
   PrivateSubnet1:
-    Type: 'AWS::EC2::Subnet::Id'
-    Description: Please enter the AZ subnetId A
+    Type: 'AWS::EC2::Subnet::Id' 
+    Description: Please enter the AZ subnetId A for the EFS
   PrivateSubnet2:
     Type: 'AWS::EC2::Subnet::Id'
-    Description: Please enter the AZ subnetId B
+    Description: Please enter the AZ subnetId B for the EFS
   PrivateSubnet3:
     Type: 'AWS::EC2::Subnet::Id'
-    Description: Please enter the AZ subnetId C
+    Description: Please enter the AZ subnetId C for the EFS
   ECRName:
     Type: String
-    Description: Nombre del ECR a crear
-    Default: dresterr
+    Description: Name of your ECR
+    Default: ECRepo
   ContainerName:
     Type: String
-    Description: Nombre del contenedor a crear
-    Default: Contenedor
+    Description: Name of the ECS container (Task)
+    Default: Container
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "ECS & LaunchTemplate Configuration"
+        Parameters:
+          - CustomerID
+          - InstanceType
+          - ECSSubnets
+          - ISize
+          - KeyPair
+          - ECRName
+          - VpcId
+          - ContainerName
+          - AmiID
+          - LaunchTemplateVersionNumber
+      - Label:
+          default: "Autoscaling & LoadBalancer configuration"
+        Parameters:
+          - LoadBalancerSubnets
+          - healthCheckType
+          - DesiredCapacity
+          - MaxSize
+          - MinSize
+      - Label:
+          default: "Subdomain & EFS configuration"
+        Parameters:
+          - DNSNombre
+          - ACMARN
+          - HostedZoneId
+          - PrivateSubnet1
+          - PrivateSubnet2
+          - PrivateSubnet3
 
 Resources:
   ECSCluster:
@@ -271,7 +299,7 @@ Resources:
     Properties:
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref DDTargetGroup
+          TargetGroupArn: !Ref FFTargetGroup
       Conditions:
         - Field: host-header
           Values:
@@ -284,14 +312,14 @@ Resources:
     Properties:
       DefaultActions:
         - Type: forward
-          TargetGroupArn: !Ref DDTargetGroup
+          TargetGroupArn: !Ref FFTargetGroup
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 443
       Protocol: HTTPS
       Certificates:
         - CertificateArn: !Ref ACMARN
 
-  DDTargetGroup:
+  FFTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     DependsOn:
     - ApplicationLoadBalancer
@@ -301,7 +329,7 @@ Resources:
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
-      TargetType: ip
+      TargetType: Instance
       Port: 80
       Protocol: HTTP
       VpcId:
@@ -346,6 +374,41 @@ Resources:
       AutoScalingGroupName: !Ref AutoScalingGroup
       Cooldown: 60
       ScalingAdjustment: -1
+
+### ALARMS         
+  CPUAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AutoScalingGroup}-cpu-scaleup
+      AlarmDescription: Scale-up if CPU > 75% for 2 minutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 75
+      AlarmActions: [!Ref ScaleUpPolicy]
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      ComparisonOperator: GreaterThanThreshold
+
+  CPUAlarmLow:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AutoScalingGroup}-cpu-scaledown
+      AlarmDescription: Scale-down if CPU < 75% for 10 minutes 
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 70 
+      AlarmActions: [!Ref ScaleDownPolicy]
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      ComparisonOperator: LessThanThreshold
 
   ContainerInstancesSecurityGroup:
     Type: "AWS::EC2::SecurityGroup"
@@ -448,13 +511,13 @@ Resources:
     Properties:
       Cluster: !Ref ECSCluster
       ServiceName: Servicio
-      TaskDefinition: !Ref DreTaskDefinition
+      TaskDefinition: !Ref TaskDefinition
       DesiredCount: !Ref MinSize
       LaunchType: EC2
       LoadBalancers:
         - ContainerName: !Ref ContainerName
           ContainerPort: 80
-          TargetGroupArn: !Ref DDTargetGroup
+          TargetGroupArn: !Ref FFTargetGroup
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -462,7 +525,7 @@ Resources:
             - !Ref ContainerInstancesSecurityGroup
           Subnets: !Ref ECSSubnets
 
-  DreTaskDefinition:
+  TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: nginx-task
