@@ -17,10 +17,8 @@ Parameters:
   InstanceType:
     Description: Clusters EC2 instance type
     Type: String
-    Default: t3a.small
-    AllowedValues:
-    - t3a.micro
-    - t3a.small
+    Default: t3a.medium
+    Description: Put the instance type exmaple r6a.large, r6a.xlarge, r5.large or others.
     ConstraintDescription: must be a valid EC2 instance type.
   DesiredCapacity:
     Type: Number
