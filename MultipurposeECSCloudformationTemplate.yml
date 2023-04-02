@@ -79,7 +79,7 @@ Parameters:
   ECRName:
     Type: String
     Description: Name of your ECR
-    Default: ECRepo
+    Default: ecrepo
   ContainerName:
     Type: String
     Description: Name of the ECS container (Task)
