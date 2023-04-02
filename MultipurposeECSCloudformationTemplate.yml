@@ -145,7 +145,6 @@ Resources:
           - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
           - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy
           - arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess
-          - arn:aws:iam::aws:policy/AWSCloudFormationFullAccess
         Policies:
           - PolicyName: !Sub ${CustomerID}-sts-assume-role
             PolicyDocument:
