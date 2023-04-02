@@ -35,7 +35,7 @@ Parameters:
     Description: Minimum number of instances that can be launched in your ECS cluster.
     Default: 1
   CustomerID:
-    Description: MUST BE THE SAME NAME AS THE STACK IN ORDER TO WORK PROPERLY
+    Description: Please enter an identificative
     Type: String
   healthCheckType:
     Description: ALB Healthcheck Type.
@@ -274,6 +274,27 @@ Resources:
       Port: 80
       Protocol: HTTP
 
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn:
+      - ApplicationLoadBalancer
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Ref: VpcId
+      Tags:
+        - Key: Name
+          Value: alb-target-group
+      LoadBalancerArns:
+        - !Ref ApplicationLoadBalancer
+
   HttpListenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -293,51 +314,32 @@ Resources:
       ListenerArn: !Ref ApplicationLoadBalancerListener
       Priority: 2
 
-  ListenerRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Properties:
-      Actions:
-        - Type: forward
-          TargetGroupArn: !Ref FFTargetGroup
-      Conditions:
-        - Field: host-header
-          Values:
-            - !Ref DNSNombre
-      ListenerArn: !Ref HttpsListener
-      Priority: 1
-
   HttpsListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
         - Type: forward
-          TargetGroupArn: !Ref FFTargetGroup
+          TargetGroupArn: !Ref ALBTargetGroup
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 443
       Protocol: HTTPS
       Certificates:
         - CertificateArn: !Ref ACMARN
 
-  FFTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+  ListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
     DependsOn:
-    - ApplicationLoadBalancer
+      - HttpsListener
     Properties:
-      HealthCheckIntervalSeconds: 6
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      TargetType: ip
-      Port: 80
-      Protocol: HTTP
-      VpcId:
-        Ref: VpcId
-      Tags:
-      - Key: Name
-        Value: alb-target-group
-      LoadBalancerArns:
-        - !Ref ApplicationLoadBalancer
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      Conditions:
+        - Field: host-header
+          Values:
+            - !Ref DNSNombre
+      ListenerArn: !Ref HttpsListener
+      Priority: 1
 
   MyECRRepository:
     Type: AWS::ECR::Repository
@@ -516,7 +518,7 @@ Resources:
       LoadBalancers:
         - ContainerName: !Ref ContainerName
           ContainerPort: 80
-          TargetGroupArn: !Ref FFTargetGroup
+          TargetGroupArn: !Ref ALBTargetGroup
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
