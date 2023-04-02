@@ -328,7 +328,7 @@ Resources:
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
-      TargetType: Instance
+      TargetType: ip
       Port: 80
       Protocol: HTTP
       VpcId:
