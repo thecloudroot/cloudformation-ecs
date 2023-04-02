@@ -80,10 +80,7 @@ Parameters:
     Type: String
     Description: Name of your ECR
     Default: ecrepo
-  ContainerName:
-    Type: String
-    Description: Name of the ECS container (Task)
-    Default: Container
+
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -98,7 +95,6 @@ Metadata:
           - KeyPair
           - ECRName
           - VpcId
-          - ContainerName
           - AmiID
           - LaunchTemplateVersionNumber
       - Label:
@@ -509,6 +505,8 @@ Resources:
 
   ECSService:
     Type: AWS::ECS::Service
+    DependsOn:
+      - ApplicationLoadBalancer
     Properties:
       Cluster: !Ref ECSCluster
       ServiceName: Servicio
@@ -516,7 +514,7 @@ Resources:
       DesiredCount: !Ref MinSize
       LaunchType: EC2
       LoadBalancers:
-        - ContainerName: !Ref ContainerName
+        - ContainerName: Nginx
           ContainerPort: 80
           TargetGroupArn: !Ref ALBTargetGroup
       NetworkConfiguration:
@@ -534,7 +532,7 @@ Resources:
       Memory: 512
       NetworkMode: awsvpc 
       ContainerDefinitions:
-        - Name: !Ref ContainerName
+        - Name: Nginx
           Image: nginx:latest
           PortMappings:
             - ContainerPort: 80
