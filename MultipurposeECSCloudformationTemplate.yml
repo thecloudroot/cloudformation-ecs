@@ -187,8 +187,6 @@ Resources:
           BackupPolicy:
             Status: ENABLED
           Encrypted: true
-          LifecyclePolicies:
-            - TransitionToIA: AFTER_30_DAYS
           PerformanceMode: generalPurpose
           Encrypted: true
           ThroughputMode: bursting
@@ -254,19 +252,29 @@ Resources:
           Value:
             Ref: CustomerID
 
-  ApplicationLoadBalancerListener:
+  ApplicationLoadBalancerListener80:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
-      DefaultActions:
-        - Type: fixed-response
-          FixedResponseConfig:
-            StatusCode: "404"
-            ContentType: "text/plain"
-            MessageBody: "La página no está disponible y listo"
-      LoadBalancerArn:
-        Ref: ApplicationLoadBalancer
-      Port: 80
       Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            Host: "#{host}"
+            Query: "#{query}"
+            Path: "/#{path}"
+            StatusCode: HTTP_301
+
+  ApplicationLoadBalancerListener443:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Protocol: HTTPS
+      Port: 443
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
 
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -305,25 +313,14 @@ Resources:
         - Field: path-pattern
           Values:
             - "/*"
-      ListenerArn: !Ref ApplicationLoadBalancerListener
-      Priority: 2
+      ListenerArn: !Ref ApplicationLoadBalancerListener80
+      Priority: 1
 
-  HttpsListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref ALBTargetGroup
-      LoadBalancerArn: !Ref ApplicationLoadBalancer
-      Port: 443
-      Protocol: HTTPS
-      Certificates:
-        - CertificateArn: !Ref ACMARN
-
-  ListenerRule:
+  HttpsListenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     DependsOn:
-      - HttpsListener
+      - ApplicationLoadBalancerListener443
+      - HttpListenerRule
     Properties:
       Actions:
         - Type: forward
@@ -332,8 +329,8 @@ Resources:
         - Field: host-header
           Values:
             - !Ref DNSNombre
-      ListenerArn: !Ref HttpsListener
-      Priority: 1
+      ListenerArn: !Ref ApplicationLoadBalancerListener443
+      Priority: 2
 
   MyECRRepository:
     Type: AWS::ECR::Repository
