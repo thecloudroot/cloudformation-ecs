@@ -500,7 +500,7 @@ Resources:
   ECSService:
     Type: AWS::ECS::Service
     DependsOn:
-      - ApplicationLoadBalancer
+      - ApplicationLoadBalancerListener
     Properties:
       Cluster: !Ref ECSCluster
       ServiceName: Servicio
