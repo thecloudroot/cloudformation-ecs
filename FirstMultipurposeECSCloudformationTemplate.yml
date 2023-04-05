@@ -1,0 +1,561 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploys an ECS Service with EFS, cloudwatch logs and alarms, Route 53 Subdomain, LoadBalancer with target group.
+Parameters:
+  KeyPair:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the container instances
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be a valid EC2 keypair.
+  LoadBalancerSubnets:
+    Description: Subnet(s) for the load balancer
+    Type: List<AWS::EC2::Subnet::Id>
+  ECSSubnets:
+    Description: Subnets for the ECS Clusters
+    Type: List<AWS::EC2::Subnet::Id>
+  VpcId:
+    Description: VPC ID for resources
+    Type: AWS::EC2::VPC::Id
+  InstanceType:
+    Description: Clusters EC2 instance type
+    Type: String
+    Default: t3a.medium
+    Description: Put the instance type exmaple r6a.large, r6a.xlarge, r5.large or others.
+    ConstraintDescription: must be a valid EC2 instance type.
+  DesiredCapacity:
+    Type: Number
+    Default: 1
+    Description: Number of instances to launch in your ECS cluster.
+  MaxSize:
+    Type: Number
+    Description: Maximum number of instances that can be launched in your ECS cluster.
+    Default: 2
+  MinSize:
+    Type: Number
+    Description: Minimum number of instances that can be launched in your ECS cluster.
+    Default: 1
+  CustomerID:
+    Description: Please enter an identificative
+    Type: String
+  healthCheckType:
+    Description: ALB Healthcheck Type.
+    Type: String
+    Default: ELB
+    AllowedValues:
+      - EC2
+      - ELB
+  LaunchTemplateVersionNumber:
+    Type: Number
+    Description: Si
+    Default: 1
+  ISize:
+    Description: Instance Volume Size.
+    Type: String
+    Default: 100
+  AmiID:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Description: Query for the latest Amazon Linux AMI IDs using AWS Systems Manager Parameter Store
+    Default: '/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id'
+  DNSNombre:
+    Description: Enter your subdomain | Example; test1.yourdomainhere
+    Type: String
+    Default: YourSubDomainHere
+  ACMARN:
+    Description: Enter the ACMARN (Amazon Certificate Manager ARN)
+    Type: String
+    Default: arn:aws:acm:us-east-1:12345678910:certificate/
+  HostedZoneId:
+    Description: Select your domain.
+    Type: AWS::Route53::HostedZone::Id
+  PrivateSubnet1:
+    Type: 'AWS::EC2::Subnet::Id' 
+    Description: Please enter the AZ subnetId A for the EFS
+  PrivateSubnet2:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: Please enter the AZ subnetId B for the EFS
+  PrivateSubnet3:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: Please enter the AZ subnetId C for the EFS
+  ECRName:
+    Type: String
+    Description: Name of your ECR
+    Default: ecrepo
+
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "ECS & LaunchTemplate Configuration"
+        Parameters:
+          - CustomerID
+          - InstanceType
+          - ECSSubnets
+          - ISize
+          - KeyPair
+          - ECRName
+          - VpcId
+          - AmiID
+          - LaunchTemplateVersionNumber
+      - Label:
+          default: "Autoscaling & LoadBalancer configuration"
+        Parameters:
+          - LoadBalancerSubnets
+          - healthCheckType
+          - DesiredCapacity
+          - MaxSize
+          - MinSize
+      - Label:
+          default: "Subdomain & EFS configuration"
+        Parameters:
+          - DNSNombre
+          - ACMARN
+          - HostedZoneId
+          - PrivateSubnet1
+          - PrivateSubnet2
+          - PrivateSubnet3
+
+Resources:
+  ECSCluster:
+    Type: "AWS::ECS::Cluster"
+    Properties:
+      ClusterName: !Ref CustomerID
+  EC2InstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - !Ref ContainerServiceRole
+  ContainerServiceRole:
+    Type: AWS::IAM::Role
+    Properties: 
+        AssumeRolePolicyDocument: 
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: [ec2.amazonaws.com]
+              Action: ['sts:AssumeRole']
+        Path: /
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+          - arn:aws:iam::aws:policy/CloudWatchFullAccess
+          - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+          - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy
+          - arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess
+        Policies:
+          - PolicyName: !Sub ${CustomerID}-sts-assume-role
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                -
+                  Effect: "Allow"
+                  Action:
+                    - "sts:*"
+                  Resource: "*"         
+          - PolicyName: "ecs-ec2-policy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: "Allow"
+                  Action:
+                    - "ecs:CreateCluster"
+                    - "ecs:DeregisterContainerInstance"
+                    - "ecs:DiscoverPollEndpoint"
+                    - "ecs:Poll"
+                    - "ecs:RegisterContainerInstance"
+                    - "ecs:StartTelemetrySession"
+                    - "ecs:Submit*"
+                  Resource: "*"
+
+  EFSSecurityGroup:
+      Type: "AWS::EC2::SecurityGroup"
+      Properties:
+          GroupDescription: "security group for the prod EFS"
+          GroupName: "dre-EFS-SG"
+          VpcId: !Ref VpcId
+          SecurityGroupIngress: 
+            - 
+              SourceSecurityGroupId: !Ref ContainerInstancesSecurityGroup
+              Description: "servers to connect to efs"
+              FromPort: 2049
+              IpProtocol: "tcp"
+              ToPort: 2049
+          Tags:
+            - Key: Name
+              Value: !Sub '${CustomerID}-EFS-SG'
+
+  EFSFileSystem:
+      Type: AWS::EFS::FileSystem
+      Properties:
+          BackupPolicy:
+            Status: ENABLED
+          Encrypted: true
+          LifecyclePolicies:
+            - TransitionToIA: AFTER_30_DAYS
+          PerformanceMode: generalPurpose
+          Encrypted: true
+          ThroughputMode: bursting
+          FileSystemTags: 
+            - Key: Name
+              Value: !Sub '${CustomerID}.FileSystem'
+
+  MountTarget1:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SubnetId: !Ref PrivateSubnet1
+      SecurityGroups:
+        - !Ref ContainerInstancesSecurityGroup
+        
+  MountTarget2:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SubnetId: !Ref PrivateSubnet2
+      SecurityGroups:
+        - !Ref ContainerInstancesSecurityGroup
+
+  MountTarget3:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSFileSystem
+      SubnetId: !Ref PrivateSubnet3
+      SecurityGroups:
+        - !Ref ContainerInstancesSecurityGroup
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the ApplicationLoadBalancer
+      VpcId:
+        Ref: VpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: ecs-inbound-access-to-loadbalancer
+      - Key: CustomerID
+        Value:
+          Ref: CustomerID
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      SecurityGroups:
+      - Ref: LoadBalancerSecurityGroup
+      Subnets:
+        Ref: LoadBalancerSubnets
+      Tags:
+        - Key: CustomerID
+          Value:
+            Ref: CustomerID
+
+  ApplicationLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: "404"
+            ContentType: "text/plain"
+            MessageBody: "La página no está disponible y listo"
+      LoadBalancerArn:
+        Ref: ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn:
+      - ApplicationLoadBalancer
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Port: 80
+      Protocol: HTTP
+      VpcId:
+        Ref: VpcId
+      Tags:
+        - Key: Name
+          Value: alb-target-group
+      LoadBalancerArns:
+        - !Ref ApplicationLoadBalancer
+
+  HttpListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: HTTP_301
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - "/*"
+      ListenerArn: !Ref ApplicationLoadBalancerListener
+      Priority: 2
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref ACMARN
+
+  ListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    DependsOn:
+      - HttpsListener
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      Conditions:
+        - Field: host-header
+          Values:
+            - !Ref DNSNombre
+      ListenerArn: !Ref HttpsListener
+      Priority: 1
+
+  MyECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ECRName
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchTemplate: !
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !Ref LaunchTemplateVersionNumber
+      VPCZoneIdentifier: !Ref ECSSubnets
+      DesiredCapacity: !Ref DesiredCapacity
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      HealthCheckType: !Ref healthCheckType 
+      HealthCheckGracePeriod: 240
+
+### SCALING POLICIES         
+  ScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Cooldown: 60
+      ScalingAdjustment: 1
+
+  ScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      Cooldown: 60
+      ScalingAdjustment: -1
+
+### ALARMS         
+  CPUAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AutoScalingGroup}-cpu-scaleup
+      AlarmDescription: Scale-up if CPU > 75% for 2 minutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 75
+      AlarmActions: [!Ref ScaleUpPolicy]
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      ComparisonOperator: GreaterThanThreshold
+
+  CPUAlarmLow:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AutoScalingGroup}-cpu-scaledown
+      AlarmDescription: Scale-down if CPU < 75% for 10 minutes 
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 70 
+      AlarmActions: [!Ref ScaleDownPolicy]
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      ComparisonOperator: LessThanThreshold
+
+  ContainerInstancesSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "ECS instance security group"
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: "tcp"
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+        - IpProtocol: "tcp"
+          FromPort: 443
+          ToPort: 443
+          CidrIp: "0.0.0.0/0"
+      VpcId: !Ref VpcId
+
+  MiSubdominio:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DNSNombre
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ApplicationLoadBalancer.DNSName
+        HostedZoneId: !GetAtt ApplicationLoadBalancer.CanonicalHostedZoneID
+
+  LaunchTemplate:
+    Type: 'AWS::EC2::LaunchTemplate'
+    Properties:
+      LaunchTemplateName: !Sub '${AWS::StackName}-auto-scaling-launch-template'
+      LaunchTemplateData:
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: false
+            Groups:
+              - !Ref ContainerInstancesSecurityGroup
+        BlockDeviceMappings:
+          - DeviceName: "/dev/xvda"
+            Ebs: 
+              VolumeSize: !Ref ISize 
+              VolumeType: "gp3"
+              DeleteOnTermination: 'true'
+              Encrypted: 'true'
+        Placement:
+          Tenancy: default
+        ImageId: !Ref AmiID
+        KeyName: !Ref KeyPair
+        IamInstanceProfile: 
+          Name: !Ref EC2InstanceProfile
+        InstanceType: !Ref InstanceType
+        TagSpecifications:
+          - ResourceType: 'instance'
+            Tags:
+              - Key: 'Name'
+                Value: !Sub '${CustomerID}-ECS-ContainerInstance'
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+            echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
+            sudo yum -y update
+            sudo yum -y upgrade
+            sudo yum install -y git nano docker aws-cli python3 python3-pip ecs-init bind-utils awslogs jq nfs-utils amazon-efs-utils htop screen wget
+            python3 -m pip install --upgrade pip
+            python3 -m pip install --upgrade boto3
+            python3 -m pip install --upgrade requests
+            export INSTANCE_ID=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)
+            sudo systemctl start awslogsd
+            sudo systemctl enable awslogsd.service
+            cat > /etc/awslogs/awslogs.conf <<- EOF
+            [general]
+            state_file = /var/lib/awslogs/agent-state  
+
+            # Docker Logs
+            [dockerlogs]
+            file = /var/lib/docker/containers/*/*.log
+            log_group_name = dockerlogs
+            log_stream_name = "$INSTANCE_ID"
+
+            EOF
+            aws configure set preview.efs true
+            mkdir /mnt/efs
+            export AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
+            export REGION="`echo \"$AVAIL_ZONE\" | sed -e 's:\([0-9][0-9]*\)[a-z]*\$:\\1:'`"
+            export EFSID=`aws efs describe-file-systems --region $REGION | jq '.FileSystems[]' | jq 'select(.Name=="'${CustomerID}.FileSystem'")' | jq -r '.FileSystemId'`
+            echo "$EFSID:/ /mnt/efs efs defaults,_netdev 0 0" >> /etc/fstab
+            mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport $EFSID.efs.$REGION.amazonaws.com:/ /mnt/efs
+            echo "EFS mounted successfully" >> /home/ec2-user/config.txt
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ApplicationLoadBalancer
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: Servicio
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref MinSize
+      LaunchType: EC2
+      LoadBalancers:
+        - ContainerName: Nginx
+          ContainerPort: 80
+          TargetGroupArn: !Ref ALBTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref ContainerInstancesSecurityGroup
+          Subnets: !Ref ECSSubnets
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: nginx-task
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc 
+      ContainerDefinitions:
+        - Name: Nginx
+          Image: nginx:latest
+          PortMappings:
+            - ContainerPort: 80
+
+Outputs:
+  Cluster:
+    Description: The created ECS cluster
+    Value:
+      Ref: ECSCluster
+  Listener:
+    Description: ApplicationLoadBalancer Listener
+    Value:
+      Ref: ApplicationLoadBalancerListener
+  ApplicationLoadBalancerEndpoint:
+    Description: DNS name of the ApplicationLoadBalancer
+    Value:
+      Fn::GetAtt:
+      - ApplicationLoadBalancer
+      - DNSName
+  SecurityGroup:
+    Description: Security Group GroupID of the ECS instances
+    Value:
+      Fn::GetAtt:
+      - ContainerInstancesSecurityGroup
+      - GroupId
+  EC2InstanceProfile: 
+    Description: IAM role for the instance 
+    Value: !Ref EC2InstanceProfile
+  EFSID:
+    Value: !Ref EFSFileSystem
+    Description: The ID of the Amazon EFS file system created
+    
