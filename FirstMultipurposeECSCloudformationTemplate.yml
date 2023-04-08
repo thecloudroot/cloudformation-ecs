@@ -271,7 +271,7 @@ Resources:
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     DependsOn:
-      - ApplicationLoadBalancer
+      - ApplicationLoadBalancerListener
     Properties:
       HealthCheckIntervalSeconds: 6
       HealthCheckPath: /
@@ -471,9 +471,6 @@ Resources:
             sudo yum -y update
             sudo yum -y upgrade
             sudo yum install -y git nano docker aws-cli python3 python3-pip ecs-init bind-utils awslogs jq nfs-utils amazon-efs-utils htop screen wget
-            python3 -m pip install --upgrade pip
-            python3 -m pip install --upgrade boto3
-            python3 -m pip install --upgrade requests
             export INSTANCE_ID=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)
             sudo systemctl start awslogsd
             sudo systemctl enable awslogsd.service
