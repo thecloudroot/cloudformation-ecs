@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: AWS ECS infastructure DEMO
+Description: AWS ECS infastructure
 
 ### Parameters ###
 Parameters:
