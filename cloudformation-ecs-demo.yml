@@ -493,7 +493,7 @@ Resources:
       - HttpsListener
     Properties:
       Cluster: !Ref ECSCluster
-      ServiceName: Servicio
+      ServiceName: !Sub '${ProyectID}-nginx-service'
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: !Ref MinSize
       LaunchType: EC2
@@ -511,7 +511,7 @@ Resources:
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: nginx-task
+      Family: nginx
       Cpu: 256
       Memory: 512
       NetworkMode: awsvpc 
