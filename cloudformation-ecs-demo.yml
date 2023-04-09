@@ -313,7 +313,7 @@ Resources:
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub '${ProyectID}-TargetGroup-80'
+      Name: !Sub 'Nginx-TargetGroup-80'
       HealthCheckIntervalSeconds: 6
       HealthCheckPath: /
       HealthCheckProtocol: HTTP
@@ -326,7 +326,7 @@ Resources:
         Ref: VpcId
       Tags:
         - Key: Name
-          Value: !Sub '${ProyectID}-TargetGroup-80'
+          Value: !Sub 'Nginx-TargetGroup-80'
       LoadBalancerArns:
         - !Ref ApplicationLoadBalancer
 
@@ -465,6 +465,7 @@ Resources:
             sudo yum -y upgrade
             sudo yum install -y docker aws-cli python27-pip ecs-init bind-utils awslogs jq nfs-utils htop screen wget net-tools amazon-efs-utils
             export INSTANCE_ID=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)
+            export AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
             export REGION="`echo \"$AVAIL_ZONE\" | sed -e 's:\([0-9][0-9]*\)[a-z]*\$:\\1:'`"
             cat > /etc/awslogs/awslogs.conf <<- EOF
             [general]
@@ -479,7 +480,6 @@ Resources:
             sudo systemctl enable awslogsd.service
             sudo systemctl restart awslogsd
             aws configure set preview.efs true
-            export AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
             export EFSID=`aws efs describe-file-systems --region $REGION | jq '.FileSystems[]' | jq 'select(.Name=="'${ProyectID}.FileSystem'")' | jq -r '.FileSystemId'`
             mkdir /mnt/efs
             echo "$EFSID:/ /mnt/efs efs defaults,_netdev 0 0" >> /etc/fstab
