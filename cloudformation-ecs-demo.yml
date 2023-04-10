@@ -475,7 +475,12 @@ Resources:
             file = /var/lib/docker/containers/*/*.log
             log_group_name = dockerlogs
             log_stream_name = "$INSTANCE_ID"
-            region = "$REGION"
+            EOF
+            cat > /etc/awslogs/awscli.conf <<- EOF
+            [plugins]
+            cwlogs = cwlogs
+            [default]
+            region = $REGION
             EOF
             sudo systemctl enable awslogsd.service
             sudo systemctl restart awslogsd
