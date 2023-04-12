@@ -313,7 +313,7 @@ Resources:
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub 'Nginx-TargetGroup-80'
+      Name: !Sub '${ProyectID}-TargetGroup-80'
       HealthCheckIntervalSeconds: 6
       HealthCheckPath: /
       HealthCheckProtocol: HTTP
@@ -326,7 +326,7 @@ Resources:
         Ref: VpcId
       Tags:
         - Key: Name
-          Value: !Sub 'Nginx-TargetGroup-80'
+          Value: !Sub '${ProyectID}-TargetGroup-80'
       LoadBalancerArns:
         - !Ref ApplicationLoadBalancer
 
@@ -467,6 +467,12 @@ Resources:
             export INSTANCE_ID=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)
             export AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
             export REGION="`echo \"$AVAIL_ZONE\" | sed -e 's:\([0-9][0-9]*\)[a-z]*\$:\\1:'`"
+            cat > /etc/awslogs/awscli.conf <<- EOF
+            [plugins]
+            cwlogs = cwlogs
+            [default]
+            region = $REGION
+            EOF
             cat > /etc/awslogs/awslogs.conf <<- EOF
             [general]
             state_file = /var/lib/awslogs/agent-state  
@@ -475,12 +481,6 @@ Resources:
             file = /var/lib/docker/containers/*/*.log
             log_group_name = dockerlogs
             log_stream_name = "$INSTANCE_ID"
-            EOF
-            cat > /etc/awslogs/awscli.conf <<- EOF
-            [plugins]
-            cwlogs = cwlogs
-            [default]
-            region = $REGION
             EOF
             sudo systemctl enable awslogsd.service
             sudo systemctl restart awslogsd
