@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: AWS ECS infastructure
+Description: AWS ECS infrastructure
 
 ### Parameters ###
 Parameters:
@@ -19,8 +19,8 @@ Parameters:
   InstanceType:
     Description: Clusters EC2 instance type
     Type: String
-    Default: t3a.medium
-    Description: Put the instance type exmaple r6a.large, r6a.xlarge, r5.large or others.
+    Description: Choose one instance type for example - m7g.medium or others. 
+    Default: m7g.medium
     ConstraintDescription: must be a valid EC2 instance type.
   DesiredCapacity:
     Type: Number
@@ -55,7 +55,7 @@ Parameters:
   AmiID:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Description: Query for the latest Amazon Linux AMI IDs using AWS Systems Manager Parameter Store
-    Default: '/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id'
+    Default: '/aws/service/ecs/optimized-ami/amazon-linux-2/arm64/recommended/image_id'
   DNSName:
     Description: Enter your subdomain | Example; test1.yourdomainhere
     Type: String
