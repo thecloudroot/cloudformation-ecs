@@ -19,7 +19,7 @@ Parameters:
   InstanceType:
     Description: Clusters EC2 instance type
     Type: String
-    Description: Choose one instance type for example - m7g.medium or others. 
+    Description: Choose one instance type for example - t3a.medium or others. 
     Default: t3a.medium
     ConstraintDescription: must be a valid EC2 instance type.
   DesiredCapacity:
