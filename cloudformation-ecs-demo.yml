@@ -20,7 +20,7 @@ Parameters:
     Description: Clusters EC2 instance type
     Type: String
     Description: Choose one instance type for example - m7g.medium or others. 
-    Default: m7g.medium
+    Default: t3a.medium
     ConstraintDescription: must be a valid EC2 instance type.
   DesiredCapacity:
     Type: Number
@@ -55,7 +55,7 @@ Parameters:
   AmiID:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Description: Query for the latest Amazon Linux AMI IDs using AWS Systems Manager Parameter Store
-    Default: '/aws/service/ecs/optimized-ami/amazon-linux-2/arm64/recommended/image_id'
+    Default: '/aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id'
   DNSName:
     Description: Enter your subdomain | Example; test1.yourdomainhere
     Type: String
@@ -140,6 +140,8 @@ Resources:
           - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy
           - arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess
           - arn:aws:iam::aws:policy/AmazonS3FullAccess 
+          - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
+          - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess
         Policies:
           - PolicyName: !Sub ${ProyectID}-sts-assume-role
             PolicyDocument:
@@ -463,7 +465,7 @@ Resources:
             echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
             sudo yum -y update
             sudo yum -y upgrade
-            sudo yum install -y docker aws-cli python27-pip ecs-init bind-utils awslogs jq nfs-utils htop screen wget net-tools amazon-efs-utils
+            sudo yum install -y docker aws-cli python27-pip ecs-init bind-utils awslogs jq nfs-utils htop screen wget net-tools amazon-efs-utils nano git
             export INSTANCE_ID=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)
             export AVAIL_ZONE=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`
             export REGION="`echo \"$AVAIL_ZONE\" | sed -e 's:\([0-9][0-9]*\)[a-z]*\$:\\1:'`"
@@ -513,19 +515,56 @@ Resources:
           SecurityGroups:
             - !Ref ContainerInstancesSecurityGroup
           Subnets: !Ref ECSSubnets
+          
+  # A role needed by ECS.
+  # "The ARN of the task execution role that containers in this task can assume. All containers in this task are granted the permissions that are specified in this role."
+  # "There is an optional task execution IAM role that you can specify with Fargate to allow your Fargate tasks to make API calls to Amazon ECR."
+  # A role needed by ECS
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ProyectID, ExecutionRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+  # A role for the containers
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ProyectID, TaskRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
 
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: nginx
       Cpu: 256
-      Memory: 512
+      Memory: 256
       NetworkMode: awsvpc 
+      ExecutionRoleArn: !Ref ExecutionRole
+      TaskRoleArn: !Ref TaskRole
       ContainerDefinitions:
         - Name: Nginx
           Image: nginx:latest
           PortMappings:
             - ContainerPort: 80
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: dockerlogs
+              awslogs-region: !Ref AWS::Region
+              awslogs-create-group: "true"
+              awslogs-stream-prefix: firelens
 
 ### Domain ###
   DomainName:
